@@ -6,9 +6,12 @@
 <p>Создание отдельной тестовой комнаты средствами VK. Прежний звонок остаётся доступным.</p>
 <p>Нажмите кнопку один раз. После создания сохраните ссылку: её доступность без участников ещё нужно проверить.</p>
 <button id="create" disabled>Создать тестовую комнату</button>
+<button id="diagnose" disabled>Проверить приложение</button>
 <p id="status">Инициализация приложения…</p>
+<pre id="diagnostic" style="white-space:pre-wrap;overflow-wrap:anywhere" aria-live="polite"></pre>
 <div id="result" hidden><p>Ссылка новой комнаты (пока не проверена после выхода):</p><textarea id="link" readonly></textarea><button id="copy">Копировать ссылку</button></div>
 <p>Не нажимайте «Завершить для всех». Не заменяйте рабочую ссылку до проверки новой комнаты.</p>
 <p>Страница не запрашивает токен аккаунта и не создаёт комнаты автоматически.</p>
-<p>Версия 2 — создание средствами VK.</p>
-</section><script src="bridge.js"></script><script src="app.js?v=2"></script></html>
+<p>Кнопка «Проверить приложение» не создаёт звонок. При неизвестном результате прежней попытки повтор создания отключён.</p>
+<p>Версия 3 — диагностика.</p>
+</section><script src="bridge.js"></script><script src="app.js?v=3"></script></html>
