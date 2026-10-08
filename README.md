@@ -1,0 +1,1 @@
+Static SL Calls VK Mini App probe (app ID 54811464). Authorization and a single calls.start request occur only after owner clicks. Tokens remain in browser memory. No VPN configuration or credentials are published. VK Bridge 3.0.2 is bundled with its license.
