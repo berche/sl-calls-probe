@@ -25,11 +25,29 @@ const journalKey = 'sl-calls-54811464-v4-attempt';
 const oldJournalKey = 'sl-calls-54811464-native-attempt';
 function hasAttempt() { return localStorage.getItem(journalKey); }
 function validLink(link) {
-  const u = new URL(link);
-  if (u.protocol !== 'https:' || !['vk.ru', 'vk.com'].includes(u.hostname)
+  if (typeof link !== 'string' || link.length > 2048 || /[\u0000-\u0020\u007f]/.test(link)) throw new ProbeError('invalid-link');
+  const candidate = /^(?:(?:m|www)\.)?vk\.(?:ru|com)\//i.test(link) ? 'https://' + link : link;
+  const u = new URL(candidate);
+  if (u.protocol !== 'https:' || !['vk.ru', 'vk.com', 'm.vk.ru', 'm.vk.com', 'www.vk.ru', 'www.vk.com'].includes(u.hostname)
       || u.username || u.password || (u.port && u.port !== '443')
-      || !/^\/call\/join\/[A-Za-z0-9_-]+$/.test(u.pathname)) throw new ProbeError('invalid-link');
-  return link;
+      || !/^\/call\/join\/[^/]+\/?$/.test(u.pathname)) throw new ProbeError('invalid-link');
+  const token = decodeURIComponent(u.pathname.split('/')[3]);
+  if (!token || /[\u0000-\u0020\u007f/\\]/.test(token)) throw new ProbeError('invalid-link');
+  return u.href;
+}
+function returnedLink(reply) {
+  const payload = reply?.response && typeof reply.response === 'object' ? reply.response : reply;
+  const value = payload?.join_link;
+  return typeof value === 'string' && value.length <= 2048 && !/[\u0000-\u001f\u007f]/.test(value) ? value : null;
+}
+function restoreLink() {
+  try {
+    const record = JSON.parse(localStorage.getItem(journalKey) || '{}');
+    if (typeof record.returnedLink === 'string' && record.returnedLink.length <= 2048
+        && !/[\u0000-\u001f\u007f]/.test(record.returnedLink)) {
+      $('link').value = record.returnedLink; $('result').hidden = false;
+    }
+  } catch {}
 }
 function safeError(error) {
   if (error instanceof ProbeError && Object.hasOwn(explanations, error.kind)) return explanations[error.kind];
@@ -70,7 +88,7 @@ function savedDiagnostic() {
     : 'В версии 4 запусков ещё не было; это не проверка истории звонков VK.';
   try {
     const record = JSON.parse(raw);
-    const labels = { pending: 'исход неизвестен', created: 'ссылка получена', failed: 'создание не подтверждено' };
+    const labels = { pending: 'исход неизвестен', returned: 'VK вернул ссылку; проверка не завершена', created: 'ссылка получена', failed: 'создание не подтверждено' };
     const state = Object.hasOwn(labels, record.state) ? labels[record.state] : 'неизвестная запись';
     const kinds = Object.hasOwn(explanations, record.kind) ? explanations[record.kind] : '';
     // Never render arbitrary fields read from storage.
@@ -82,7 +100,7 @@ function savedDiagnostic() {
 async function diagnose() {
   if (diagnosisBusy || busy) return;
   diagnosisBusy = true; $('diagnose').disabled = true;
-  const lines = ['Версия 4. Проверка не создаёт звонок.'];
+  const lines = ['Версия 5. Проверка не создаёт звонок.'];
   try {
     lines.push(savedDiagnostic());
     await bounded(bridge.send('VKWebAppInit'));
@@ -113,6 +131,7 @@ async function init() {
   try {
     await bounded(bridge.send('VKWebAppInit'));
     if (hasAttempt()) {
+      restoreLink();
       $('diagnostic').textContent = savedDiagnostic();
       status('Попытка создания уже зарегистрирована. Сначала проверьте её результат в VK. Повтор отключён.'); return;
     }
@@ -135,14 +154,22 @@ $('create').onclick = async () => {
     sent = true;
     const reply = await bounded(bridge.send('VKWebAppCallStart', {}));
     $('diagnostic').textContent = replyShape(reply);
+    const originalLink = returnedLink(reply);
+    if (originalLink) {
+      // Retain the actual returned link before validation. Display as plain text only.
+      $('link').value = originalLink; $('result').hidden = false;
+      try { localStorage.setItem(journalKey, JSON.stringify({ state: 'returned', version: 5,
+        returnedLink: originalLink, time: Date.now() })); } catch {}
+    }
     const link = acceptedLink(reply);
     $('link').value = link; $('result').hidden = false;
-    try { localStorage.setItem(journalKey, JSON.stringify({ state: 'created', version: 4, time: Date.now() })); } catch {}
+    try { localStorage.setItem(journalKey, JSON.stringify({ state: 'created', version: 5, returnedLink: link, time: Date.now() })); } catch {}
     status('Комната создана. Скопируйте ссылку. Сохранение без участников пока не проверено.');
   } catch (error) {
     if (sent) {
       const record = safeFailureRecord(error);
-      try { localStorage.setItem(journalKey, JSON.stringify({ state: 'failed', version: 4, ...record, time: Date.now() })); } catch {}
+      const linkRecord = !$('result').hidden ? { returnedLink: $('link').value } : {};
+      try { localStorage.setItem(journalKey, JSON.stringify({ state: 'failed', version: 5, ...record, ...linkRecord, time: Date.now() })); } catch {}
     }
     status((sent ? 'Создание не подтверждено: ' : 'Запрос создания не отправлен: ') + safeError(error)
       + '. Автоматического повтора не будет.');
