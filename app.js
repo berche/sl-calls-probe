@@ -26,7 +26,9 @@ const oldJournalKey = 'sl-calls-54811464-v4-attempt';
 function hasAttempt() { return localStorage.getItem(journalKey); }
 function validLink(link) {
   if (typeof link !== 'string' || link.length > 2048 || /[\u0000-\u0020\u007f]/.test(link)) throw new ProbeError('invalid-link');
-  const candidate = /^(?:(?:m|www)\.)?vk\.(?:ru|com)\//i.test(link) ? 'https://' + link : link;
+  const candidate = /^[A-Za-z0-9_-]{16,512}={0,2}$/.test(link)
+    ? 'https://vk.ru/call/join/' + link
+    : /^(?:(?:m|www)\.)?vk\.(?:ru|com)\//i.test(link) ? 'https://' + link : link;
   const u = new URL(candidate);
   if (u.protocol !== 'https:' || !['vk.ru', 'vk.com', 'm.vk.ru', 'm.vk.com', 'www.vk.ru', 'www.vk.com'].includes(u.hostname)
       || u.username || u.password || (u.port && u.port !== '443')
@@ -45,9 +47,12 @@ function restoreLink() {
     const record = JSON.parse(localStorage.getItem(journalKey) || '{}');
     if (typeof record.returnedLink === 'string' && record.returnedLink.length <= 2048
         && !/[\u0000-\u001f\u007f]/.test(record.returnedLink)) {
-      $('link').value = record.returnedLink; $('result').hidden = false;
+      $('result').hidden = false;
+      try { $('link').value = validLink(record.returnedLink); return true; }
+      catch { $('link').value = record.returnedLink; }
     }
   } catch {}
+  return false;
 }
 function safeError(error) {
   if (error instanceof ProbeError && Object.hasOwn(explanations, error.kind)) return explanations[error.kind];
@@ -100,7 +105,7 @@ function savedDiagnostic() {
 async function diagnose() {
   if (diagnosisBusy || busy) return;
   diagnosisBusy = true; $('diagnose').disabled = true;
-  const lines = ['Версия 6. Проверка не создаёт звонок.'];
+  const lines = ['Версия 7. Проверка не создаёт звонок.'];
   try {
     lines.push(savedDiagnostic());
     await bounded(bridge.send('VKWebAppInit'));
@@ -131,9 +136,10 @@ async function init() {
   try {
     await bounded(bridge.send('VKWebAppInit'));
     if (hasAttempt()) {
-      restoreLink();
+      const restored = restoreLink();
       $('diagnostic').textContent = savedDiagnostic();
-      status('Попытка создания уже зарегистрирована. Сначала проверьте её результат в VK. Повтор отключён.'); return;
+      status(restored ? 'Сохранённый ответ преобразован в полную ссылку. Новый звонок не создавался; работу ссылки ещё нужно проверить.'
+        : 'Попытка создания уже зарегистрирована. Сначала проверьте её результат в VK. Повтор отключён.'); return;
     }
     const previous = localStorage.getItem(oldJournalKey);
     if (previous) {
