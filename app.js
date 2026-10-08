@@ -21,8 +21,8 @@ function bounded(operation) {
     timer = setTimeout(() => reject(new ProbeError('timeout')), 20000);
   })]).finally(() => clearTimeout(timer));
 }
-const journalKey = 'sl-calls-54811464-v4-attempt';
-const oldJournalKey = 'sl-calls-54811464-native-attempt';
+const journalKey = 'sl-calls-54811464-v6-attempt';
+const oldJournalKey = 'sl-calls-54811464-v4-attempt';
 function hasAttempt() { return localStorage.getItem(journalKey); }
 function validLink(link) {
   if (typeof link !== 'string' || link.length > 2048 || /[\u0000-\u0020\u007f]/.test(link)) throw new ProbeError('invalid-link');
@@ -84,8 +84,8 @@ function safeFailureRecord(error) {
 function savedDiagnostic() {
   const raw = localStorage.getItem(journalKey);
   if (!raw) return localStorage.getItem(oldJournalKey)
-    ? 'Прежняя попытка версии 2 сохранена отдельно. В версии 4 запусков ещё не было.'
-    : 'В версии 4 запусков ещё не было; это не проверка истории звонков VK.';
+    ? 'Прежняя попытка версии 4 сохранена отдельно. В версии 6 запусков ещё не было.'
+    : 'В версии 6 запусков ещё не было; это не проверка истории звонков VK.';
   try {
     const record = JSON.parse(raw);
     const labels = { pending: 'исход неизвестен', returned: 'VK вернул ссылку; проверка не завершена', created: 'ссылка получена', failed: 'создание не подтверждено' };
@@ -100,7 +100,7 @@ function savedDiagnostic() {
 async function diagnose() {
   if (diagnosisBusy || busy) return;
   diagnosisBusy = true; $('diagnose').disabled = true;
-  const lines = ['Версия 5. Проверка не создаёт звонок.'];
+  const lines = ['Версия 6. Проверка не создаёт звонок.'];
   try {
     lines.push(savedDiagnostic());
     await bounded(bridge.send('VKWebAppInit'));
@@ -135,11 +135,23 @@ async function init() {
       $('diagnostic').textContent = savedDiagnostic();
       status('Попытка создания уже зарегистрирована. Сначала проверьте её результат в VK. Повтор отключён.'); return;
     }
+    const previous = localStorage.getItem(oldJournalKey);
+    if (previous) {
+      const record = JSON.parse(previous);
+      if (typeof record.returnedLink === 'string' && record.returnedLink.length <= 2048
+          && !/[\u0000-\u001f\u007f]/.test(record.returnedLink)) {
+        $('link').value = record.returnedLink; $('result').hidden = false;
+        status('Ссылка прежнего запуска сохранена. Новую комнату создавать не требуется.'); return;
+      }
+      if (record.state !== 'failed' || record.kind !== 'invalid-link') {
+        status('Исход прежнего запуска требует проверки. Новый запуск отключён.'); return;
+      }
+    }
     if (typeof bridge.supportsAsync !== 'function' || !await bounded(bridge.supportsAsync('VKWebAppCallStart'))) {
       status('VK не сообщил о поддержке создания звонка в этом окне. Запрос создания не отправлялся.'); return;
     }
     ready = true; $('create').disabled = false;
-    status('Готов один диагностический запуск версии 4. Прежний звонок и запись прежней попытки сохранены.');
+    status('Готов один тест получения ссылки. Прежний звонок и запись прежней попытки сохранены.');
   } catch (error) { status('Проверка VK не завершилась: ' + safeError(error) + '. Запрос создания не отправлялся.'); }
 }
 $('create').onclick = async () => {
@@ -149,7 +161,7 @@ $('create').onclick = async () => {
   try {
     if (hasAttempt()) { status('Повтор создания отключён. Проверьте прежнюю попытку в VK.'); return; }
     // Reserve before mutation; unavailable storage prevents sending. Never retry.
-    localStorage.setItem(journalKey, JSON.stringify({ state: 'pending', version: 4, time: Date.now() }));
+    localStorage.setItem(journalKey, JSON.stringify({ state: 'pending', version: 6, time: Date.now() }));
     status('Запрос создания отправляется. При задержке не обновляйте страницу.');
     sent = true;
     const reply = await bounded(bridge.send('VKWebAppCallStart', {}));
@@ -158,18 +170,18 @@ $('create').onclick = async () => {
     if (originalLink) {
       // Retain the actual returned link before validation. Display as plain text only.
       $('link').value = originalLink; $('result').hidden = false;
-      try { localStorage.setItem(journalKey, JSON.stringify({ state: 'returned', version: 5,
+      try { localStorage.setItem(journalKey, JSON.stringify({ state: 'returned', version: 6,
         returnedLink: originalLink, time: Date.now() })); } catch {}
     }
     const link = acceptedLink(reply);
     $('link').value = link; $('result').hidden = false;
-    try { localStorage.setItem(journalKey, JSON.stringify({ state: 'created', version: 5, returnedLink: link, time: Date.now() })); } catch {}
+    try { localStorage.setItem(journalKey, JSON.stringify({ state: 'created', version: 6, returnedLink: link, time: Date.now() })); } catch {}
     status('Комната создана. Скопируйте ссылку. Сохранение без участников пока не проверено.');
   } catch (error) {
     if (sent) {
       const record = safeFailureRecord(error);
       const linkRecord = !$('result').hidden ? { returnedLink: $('link').value } : {};
-      try { localStorage.setItem(journalKey, JSON.stringify({ state: 'failed', version: 5, ...record, ...linkRecord, time: Date.now() })); } catch {}
+      try { localStorage.setItem(journalKey, JSON.stringify({ state: 'failed', version: 6, ...record, ...linkRecord, time: Date.now() })); } catch {}
     }
     status((sent ? 'Создание не подтверждено: ' : 'Запрос создания не отправлен: ') + safeError(error)
       + '. Автоматического повтора не будет.');
