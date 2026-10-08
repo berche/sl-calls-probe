@@ -3,12 +3,12 @@
 <title>SL Calls — проверка комнаты</title>
 <style>body{font:17px system-ui;max-width:720px;margin:32px auto;padding:0 20px;color:#17212b;background:#f4f6f9}button{font:inherit;padding:14px 18px;margin:10px 0;cursor:pointer}button:disabled{cursor:default}section{background:white;padding:22px;border-radius:16px}textarea{width:100%;box-sizing:border-box;height:110px}#status{white-space:pre-wrap;overflow-wrap:anywhere}</style>
 <h1>SL Calls</h1><section>
-<p>Создание отдельной тестовой комнаты VK. Работающий звонок и настройки VPN не меняются.</p>
-<p>Сначала VK запросит разрешение на звонки. Это проверка доступности функции, а не гарантия постоянной ссылки.</p>
-<button id="authorize" disabled>1. Запросить доступ к звонкам</button><br>
-<button id="create" disabled>2. Создать одну тестовую комнату</button>
+<p>Создание отдельной тестовой комнаты средствами VK. Прежний звонок остаётся доступным.</p>
+<p>Нажмите кнопку один раз. После создания сохраните ссылку: её доступность без участников ещё нужно проверить.</p>
+<button id="create" disabled>Создать тестовую комнату</button>
 <p id="status">Инициализация приложения…</p>
 <div id="result" hidden><p>Ссылка новой комнаты (пока не проверена после выхода):</p><textarea id="link" readonly></textarea><button id="copy">Копировать ссылку</button></div>
 <p>Не нажимайте «Завершить для всех». Не заменяйте рабочую ссылку до проверки новой комнаты.</p>
-<p>Токен не сохраняется и не отправляется на Beget. Страница не запускает звонки автоматически.</p>
-</section><script src="bridge.js"></script><script src="app.js"></script></html>
+<p>Страница не запрашивает токен аккаунта и не создаёт комнаты автоматически.</p>
+<p>Версия 2 — создание средствами VK.</p>
+</section><script src="bridge.js"></script><script src="app.js?v=2"></script></html>

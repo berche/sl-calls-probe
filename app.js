@@ -3,9 +3,11 @@ const APP_ID = 54811464;
 const bridge = window.vkBridge;
 const $ = id => document.getElementById(id);
 const status = text => { $('status').textContent = text; };
-let token = null;
+let ready = false;
 let busy = false;
-const journalKey = 'sl-calls-54811464-attempt';
+const journalKey = 'sl-calls-54811464-native-attempt';
+const oldJournalKey = 'sl-calls-54811464-attempt';
+function hasAttempt() { return localStorage.getItem(journalKey) || localStorage.getItem(oldJournalKey); }
 function validLink(link) {
   const u = new URL(link);
   if (u.protocol !== 'https:' || !['vk.ru', 'vk.com'].includes(u.hostname)
@@ -13,63 +15,58 @@ function validLink(link) {
       || !/^\/call\/join\/[A-Za-z0-9_-]+$/.test(u.pathname)) throw new Error('invalid-link');
   return link;
 }
-function errorCode(error) {
-  // Do not stringify raw bridge errors: they can echo request tokens.
-  const value = error?.error_data?.error_code ?? error?.error_code;
-  return Number.isInteger(value) ? String(value) : 'не указан';
+function safeError(error) {
+  // Only known labels and a numeric code, never arbitrary response data.
+  const types = { client_error: 'ошибка интерфейса VK', api_error: 'ошибка API VK', auth_error: 'ошибка авторизации VK' };
+  const reasons = { 'Invalid params': 'некорректные параметры', 'Access denied': 'доступ отклонён', 'Unknown method': 'метод не поддерживается' };
+  const code = error?.error_data?.error_code ?? error?.error_code;
+  const type = Object.hasOwn(types, error?.error_type) ? types[error.error_type] : 'тип не указан';
+  const rawReason = error?.error_data?.error_reason;
+  const reason = Object.hasOwn(reasons, rawReason) ? '; ' + reasons[rawReason] : '';
+  return type + '; код ' + (Number.isInteger(code) ? code : 'не указан') + reason;
 }
 async function init() {
   if (!bridge || window.parent === window) {
-    status('Откройте эту страницу внутри SL Calls в VK. В обычной вкладке создание отключено.');
-    return;
+    status('Откройте SL Calls внутри VK. В обычной вкладке создание отключено.'); return;
   }
-  const id = new URLSearchParams(location.search).get('vk_app_id');
-  if (id !== String(APP_ID)) { status('Неверный ID приложения. Создание отключено.'); return; }
+  if (new URLSearchParams(location.search).get('vk_app_id') !== String(APP_ID)) {
+    status('Неверный ID приложения. Создание отключено.'); return;
+  }
   try {
     await bridge.send('VKWebAppInit');
-    if (localStorage.getItem(journalKey)) {
-      status('На этом браузере уже зарегистрирована попытка создания. Проверьте результат в VK перед новым запросом.');
-      return;
+    if (hasAttempt()) {
+      status('Попытка создания уже зарегистрирована. Сначала проверьте её результат в VK. Повтор отключён.'); return;
     }
-    $('authorize').disabled = false;
-    status('Готово. Нажмите первую кнопку и подтвердите доступ только к звонкам.');
-  } catch { status('VK Bridge не инициализировался. Запросы создания не отправлены.'); }
+    if (typeof bridge.supportsAsync !== 'function' || !await bridge.supportsAsync('VKWebAppCallStart')) {
+      status('VK не сообщил о поддержке создания звонка в этом окне. Запрос создания не отправлялся.'); return;
+    }
+    ready = true; $('create').disabled = false;
+    status('Готово. Можно создать одну отдельную тестовую комнату.');
+  } catch (error) { status('Проверка VK не завершилась: ' + safeError(error) + '. Запрос создания не отправлялся.'); }
 }
-$('authorize').onclick = async () => {
-  if (busy) return;
-  busy = true; $('authorize').disabled = true;
-  try {
-    const auth = await bridge.send('VKWebAppGetAuthToken', { app_id: APP_ID, scope: 'calls' });
-    const scopes = String(auth.scope || '').split(',').map(x => x.trim());
-    if (!auth.access_token || !scopes.includes('calls')) {
-      status('VK не выдал право calls нашему приложению. Комната не создавалась.'); return;
-    }
-    token = auth.access_token;
-    $('create').disabled = false;
-    status('Разрешение получено. Вторая кнопка создаст одну отдельную комнату.');
-  } catch (error) { status('Доступ не получен. Код VK: ' + errorCode(error) + '. Комната не создавалась.'); }
-  finally { busy = false; }
-};
 $('create').onclick = async () => {
-  if (busy || !token) return;
-  busy = true; $('create').disabled = true;
+  if (busy || !ready) return;
+  busy = true; ready = false; $('create').disabled = true;
+  let sent = false;
   try {
-    // Save intent before mutation; never retry a timeout or unexpected result.
+    if (hasAttempt()) { status('Повтор создания отключён. Проверьте прежнюю попытку в VK.'); return; }
+    // Reserve before mutation; unavailable storage prevents sending. Never retry.
     localStorage.setItem(journalKey, JSON.stringify({ state: 'pending', time: Date.now() }));
-    status('Один запрос отправляется. При задержке не обновляйте страницу.');
-    const reply = await bridge.send('VKWebAppCallAPIMethod', {
-      method: 'calls.start', params: { access_token: token, v: '5.199' }
-    });
-    const value = reply.response || reply;
-    const link = validLink(value.join_link);
-    localStorage.setItem(journalKey, JSON.stringify({ state: 'created', time: Date.now() }));
+    status('Запрос создания отправляется. При задержке не обновляйте страницу.');
+    sent = true;
+    const reply = await bridge.send('VKWebAppCallStart', {});
+    if (reply?.result !== true) throw new Error('unexpected-result');
+    const link = validLink(reply.join_link);
     $('link').value = link; $('result').hidden = false;
-    status('Комната создана. Сохранение без участников ещё не проверено. Скопируйте ссылку для отдельного теста.');
+    try { localStorage.setItem(journalKey, JSON.stringify({ state: 'created', time: Date.now() })); } catch {}
+    status('Комната создана. Скопируйте ссылку. Сохранение без участников пока не проверено.');
   } catch (error) {
-    status('Создание не подтверждено. Код VK: ' + errorCode(error) + '. Повтора не будет: сначала проверьте звонки в VK.');
-  } finally { token = null; busy = false; }
+    status((sent ? 'Создание не подтверждено: ' : 'Запрос создания не отправлен: ') + safeError(error)
+      + '. Автоматического повтора не будет.');
+  } finally { busy = false; }
 };
 $('copy').onclick = async () => {
+  if ($('result').hidden) return;
   try { await navigator.clipboard.writeText($('link').value); status('Ссылка скопирована. Она ещё не проверена как постоянная.'); }
   catch { $('link').focus(); $('link').select(); status('Выделенная ссылка доступна для ручного копирования.'); }
 };
